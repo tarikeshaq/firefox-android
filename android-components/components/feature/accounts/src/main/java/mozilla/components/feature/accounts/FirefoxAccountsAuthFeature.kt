@@ -32,15 +32,15 @@ class FirefoxAccountsAuthFeature(
     private val coroutineContext: CoroutineContext = Dispatchers.IO,
     private val onBeginAuthentication: (Context, String) -> Unit = { _, _ -> },
 ) {
-    fun beginAuthentication(context: Context) {
+    fun beginAuthentication(context: Context, entrypoint: String) {
         beginAuthenticationAsync(context) {
-            accountManager.beginAuthentication()
+            accountManager.beginAuthentication(entrypoint = entrypoint)
         }
     }
 
-    fun beginPairingAuthentication(context: Context, pairingUrl: String) {
+    fun beginPairingAuthentication(context: Context, pairingUrl: String, entrypoint: String) {
         beginAuthenticationAsync(context) {
-            accountManager.beginAuthentication(pairingUrl)
+            accountManager.beginAuthentication(pairingUrl, entrypoint = entrypoint)
         }
     }
 

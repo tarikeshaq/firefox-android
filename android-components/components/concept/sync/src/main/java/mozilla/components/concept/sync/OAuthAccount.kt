@@ -56,7 +56,7 @@ interface OAuthAccount : AutoCloseable {
      */
     suspend fun beginOAuthFlow(
         scopes: Set<String>,
-        entryPoint: String = "android-components",
+        entryPoint: String,
     ): AuthFlowUrl?
 
     /**
@@ -72,7 +72,7 @@ interface OAuthAccount : AutoCloseable {
     suspend fun beginPairingFlow(
         pairingUrl: String,
         scopes: Set<String>,
-        entryPoint: String = "android-components",
+        entryPoint: String,
     ): AuthFlowUrl?
 
     /**

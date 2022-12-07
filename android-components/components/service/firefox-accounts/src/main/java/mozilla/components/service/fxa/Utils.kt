@@ -139,10 +139,10 @@ internal suspend fun withServiceRetries(
     return ServiceResult.OtherError
 }
 
-internal suspend fun String?.asAuthFlowUrl(account: OAuthAccount, scopes: Set<String>): AuthFlowUrl? {
+internal suspend fun String?.asAuthFlowUrl(account: OAuthAccount, scopes: Set<String>, entrypoint: String): AuthFlowUrl? {
     return if (this != null) {
-        account.beginPairingFlow(this, scopes)
+        account.beginPairingFlow(this, scopes, entrypoint)
     } else {
-        account.beginOAuthFlow(scopes)
+        account.beginOAuthFlow(scopes, entrypoint)
     }
 }
