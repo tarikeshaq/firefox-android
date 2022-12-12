@@ -5,6 +5,7 @@
 package mozilla.components.service.fxa.manager
 
 import mozilla.components.concept.sync.AuthType
+import mozilla.components.concept.sync.FxAEntrypoint
 import mozilla.components.service.fxa.FxaAuthData
 import mozilla.components.service.fxa.sharing.ShareableAccount
 
@@ -71,8 +72,8 @@ internal enum class ProgressState {
 internal sealed class Event {
     internal sealed class Account : Event() {
         internal object Start : Account()
-        data class BeginEmailFlow(val entrypoint: String) : Account()
-        data class BeginPairingFlow(val pairingUrl: String?, val entrypoint: String) : Account()
+        data class BeginEmailFlow(val entrypoint: FxAEntrypoint) : Account()
+        data class BeginPairingFlow(val pairingUrl: String?, val entrypoint: FxAEntrypoint) : Account()
         data class AuthenticationError(val operation: String, val errorCountWithinTheTimeWindow: Int = 1) : Account() {
             override fun toString(): String {
                 return "${this.javaClass.simpleName} - $operation"

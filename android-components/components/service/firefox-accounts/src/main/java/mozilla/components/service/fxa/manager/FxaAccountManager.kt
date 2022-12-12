@@ -20,6 +20,7 @@ import mozilla.components.concept.sync.AuthFlowError
 import mozilla.components.concept.sync.AuthFlowUrl
 import mozilla.components.concept.sync.AuthType
 import mozilla.components.concept.sync.DeviceConfig
+import mozilla.components.concept.sync.FxAEntrypoint
 import mozilla.components.concept.sync.InFlightMigrationState
 import mozilla.components.concept.sync.OAuthAccount
 import mozilla.components.concept.sync.Profile
@@ -412,11 +413,11 @@ open class FxaAccountManager(
      * Begins an authentication process. Should be finalized by calling [finishAuthentication] once
      * user successfully goes through the authentication at the returned url.
      * @param pairingUrl Optional pairing URL in case a pairing flow is being initiated.
-     * @param entrypoint A string representing the feature entrypoint requesting the URL.
+     * @param entrypoint an enum representing the feature entrypoint requesting the URL.
      * the entrypoint is used in telemetry.
      * @return An authentication url which is to be presented to the user.
      */
-    suspend fun beginAuthentication(pairingUrl: String? = null, entrypoint: String): String? = withContext(coroutineContext) {
+    suspend fun beginAuthentication(pairingUrl: String? = null, entrypoint: FxAEntrypoint): String? = withContext(coroutineContext) {
         // It's possible that at this point authentication is considered to be "in-progress".
         // For example, if user started authentication flow, but cancelled it (closing a custom tab)
         // without finishing.
@@ -631,7 +632,7 @@ open class FxaAccountManager(
                     // This should be impossible, both `BeginPairingFlow` and `BeginEmailFlow`
                     // have a required `entrypoint` and we are matching against only instances
                     // of those data classes.
-                    "unknown-entrypoint"
+                    throw IllegalStateException("BeginningAuthentication with a flow that is neither email nor pairing")
                 }
                 val result = withRetries(logger, MAX_NETWORK_RETRIES) {
                     pairingUrl.asAuthFlowUrl(account, scopes, entrypoint = entrypoint)
