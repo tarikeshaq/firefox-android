@@ -10,12 +10,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.withContext
+import mozilla.appservices.fxaclient.FirefoxAccountEventHandler
+import mozilla.appservices.fxaclient.Profile
 import mozilla.components.concept.base.crash.CrashReporting
-import mozilla.components.concept.sync.AuthFlowUrl
-import mozilla.components.concept.sync.DeviceConstellation
-import mozilla.components.concept.sync.MigratingAccountInfo
-import mozilla.components.concept.sync.OAuthAccount
-import mozilla.components.concept.sync.StatePersistenceCallback
+import mozilla.components.concept.sync.*
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.appservices.fxaclient.PersistedFirefoxAccount as InternalFxAcct
 
@@ -64,11 +62,39 @@ class FirefoxAccount internal constructor(
         }
     }
 
+
+    private class WrappingFirefoxAccountEventHandler: FirefoxAccountEventHandler {
+        private val logger = Logger("WrappingFirefoxAccountEventHandler")
+
+        @Volatile
+        private var inner: OAuthAccountEventHandler? = null
+
+        fun setCallback(callback: OAuthAccountEventHandler) {
+            logger.debug("Setting persistence callback")
+            inner = callback
+        }
+
+        override fun profileUpdated(profile: Profile) {
+            val callback = inner
+
+            if (callback == null) {
+                logger.warn("InternalFxAcct tried updating profile, but update callback is not set")
+            } else {
+                logger.debug("Logging state to $callback")
+                callback.profileUpdated(profile.into())
+            }
+        }
+    }
+
+
+
     private var persistCallback = WrappingPersistenceCallback()
     private val deviceConstellation = FxaDeviceConstellation(inner, scope, crashReporter)
+    private val fxaEventHandler = WrappingFirefoxAccountEventHandler()
 
     init {
         inner.registerPersistCallback(persistCallback)
+        inner.registerEventHandler(fxaEventHandler)
     }
 
     /**
@@ -92,6 +118,11 @@ class FirefoxAccount internal constructor(
     override fun registerPersistenceCallback(callback: StatePersistenceCallback) {
         logger.info("Registering persistence callback")
         persistCallback.setCallback(callback)
+    }
+
+    override fun registerEventHandler(eventHandler: OAuthAccountEventHandler) {
+        logger.info("Registering event handler callback")
+        fxaEventHandler.setCallback(eventHandler)
     }
 
     override suspend fun beginOAuthFlow(scopes: Set<String>, entryPoint: String) = withContext(scope.coroutineContext) {

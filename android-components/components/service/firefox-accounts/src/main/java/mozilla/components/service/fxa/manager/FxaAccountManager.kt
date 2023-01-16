@@ -383,6 +383,10 @@ open class FxaAccountManager(
         else -> false
     }
 
+    fun setProfile(profile: Profile) {
+        this.profile = profile
+    }
+
     /**
      * Returns a [Profile] for an account, attempting to fetch it if necessary.
      * @return [Profile] if one is available and account is an authenticated state.
@@ -399,13 +403,7 @@ open class FxaAccountManager(
 
     @VisibleForTesting
     internal suspend fun refreshProfile(ignoreCache: Boolean): Profile? {
-        return authenticatedAccount()?.getProfile(ignoreCache = ignoreCache)?.let { newProfile ->
-            profile = newProfile
-            notifyObservers {
-                onProfileUpdated(newProfile)
-            }
-            profile
-        }
+        return authenticatedAccount()?.getProfile(ignoreCache = ignoreCache)
     }
 
     /**

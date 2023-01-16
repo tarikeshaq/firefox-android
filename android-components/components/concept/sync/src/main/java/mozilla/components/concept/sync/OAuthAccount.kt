@@ -158,6 +158,8 @@ interface OAuthAccount : AutoCloseable {
      */
     fun registerPersistenceCallback(callback: StatePersistenceCallback)
 
+    fun registerEventHandler(eventHandler: OAuthAccountEventHandler)
+
     /**
      * Attempts to migrate from an existing session token without user input.
      * Passed-in session token will be reused.
@@ -224,6 +226,10 @@ interface StatePersistenceCallback {
      * @param data Account state representation as a string (e.g. as json).
      */
     fun persist(data: String)
+}
+
+interface OAuthAccountEventHandler {
+    fun profileUpdated(profile: Profile)
 }
 
 sealed class AuthType {

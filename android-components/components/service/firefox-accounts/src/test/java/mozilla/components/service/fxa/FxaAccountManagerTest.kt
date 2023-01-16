@@ -13,22 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import mozilla.components.concept.base.crash.CrashReporting
-import mozilla.components.concept.sync.AccessTokenInfo
-import mozilla.components.concept.sync.AccountEventsObserver
-import mozilla.components.concept.sync.AccountObserver
-import mozilla.components.concept.sync.AuthFlowUrl
-import mozilla.components.concept.sync.AuthType
-import mozilla.components.concept.sync.DeviceCapability
-import mozilla.components.concept.sync.DeviceConfig
-import mozilla.components.concept.sync.DeviceConstellation
-import mozilla.components.concept.sync.DeviceType
-import mozilla.components.concept.sync.InFlightMigrationState
-import mozilla.components.concept.sync.MigratingAccountInfo
-import mozilla.components.concept.sync.OAuthAccount
-import mozilla.components.concept.sync.OAuthScopedKey
-import mozilla.components.concept.sync.Profile
-import mozilla.components.concept.sync.ServiceResult
-import mozilla.components.concept.sync.StatePersistenceCallback
+import mozilla.components.concept.sync.*
 import mozilla.components.service.fxa.manager.FxaAccountManager
 import mozilla.components.service.fxa.manager.GlobalAccountManager
 import mozilla.components.service.fxa.manager.MigrationResult
@@ -734,6 +719,7 @@ class FxaAccountManagerTest {
     ) : OAuthAccount {
 
         var persistenceCallback: StatePersistenceCallback? = null
+        var fxaEventHandler: OAuthAccountEventHandler? = null
         var checkAuthorizationStatusCalled = false
         var authErrorDetectedCalled = false
         var latestMigrateAuthInfo: MigratingAccountInfo? = null
@@ -815,6 +801,10 @@ class FxaAccountManagerTest {
 
         override fun registerPersistenceCallback(callback: StatePersistenceCallback) {
             persistenceCallback = callback
+        }
+
+        override fun registerEventHandler(eventHandler: OAuthAccountEventHandler) {
+            fxaEventHandler = eventHandler
         }
 
         override fun deviceConstellation(): DeviceConstellation {
