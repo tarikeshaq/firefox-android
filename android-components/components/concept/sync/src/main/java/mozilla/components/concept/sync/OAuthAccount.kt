@@ -89,14 +89,15 @@ interface OAuthAccount : AutoCloseable {
      */
     fun getSessionToken(): String?
 
-    /**
-     * Fetches the profile object for the current client either from the existing cached state
+    /** Refreshes the profile object for the current client either from the existing cached state
      * or from the server (requires the client to have access to the profile scope).
      *
-     * @param ignoreCache Fetch the profile information directly from the server
+     * @param forceFetch Fetch the profile information directly from the server**
+     * @param profileUpdatedCallback A callback interface that triggers when a profile is available
+     *
      * @return Profile (optional, if successfully retrieved) representing the user's basic profile info
      */
-    suspend fun getProfile(ignoreCache: Boolean = false): Profile?
+    suspend fun refreshProfile(forceFetch: Boolean = false, profileUpdatedCallback: OAuthProfileUpdatedCallback)
 
     /**
      * Authenticates the current account using the [code] and [state] parameters obtained via the
@@ -157,8 +158,6 @@ interface OAuthAccount : AutoCloseable {
      * @param callback the account state persistence callback
      */
     fun registerPersistenceCallback(callback: StatePersistenceCallback)
-
-    fun registerEventHandler(eventHandler: OAuthAccountEventHandler)
 
     /**
      * Attempts to migrate from an existing session token without user input.
@@ -228,7 +227,13 @@ interface StatePersistenceCallback {
     fun persist(data: String)
 }
 
-interface OAuthAccountEventHandler {
+/**
+ * Describes a delegate object that is used by [FxaAccountManager] to update it's profile object
+ */
+interface OAuthProfileUpdatedCallback {
+    /**
+     * @param profile Profile object that the [FxaAccountManager] holds
+     */
     fun profileUpdated(profile: Profile)
 }
 

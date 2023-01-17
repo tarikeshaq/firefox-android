@@ -56,21 +56,7 @@ open class StorageWrapper(
         }
     }
 
-    private class AccountEventHandler(
-        private val accountManager: WeakReference<FxaAccountManager>,
-    ) : OAuthAccountEventHandler {
-        override fun profileUpdated(profile: Profile) {
-            accountManager.get()?.let {
-                it.setProfile(profile)
-                it.notifyObservers {
-                    onProfileUpdated(profile)
-                }
-            }
-        }
-    }
-
     private val statePersistenceCallback = PersistenceCallback(WeakReference(accountManager))
-    private val eventHandler = AccountEventHandler(WeakReference(accountManager))
     private val accountEventsIntegration = AccountEventsIntegration(accountEventObserverRegistry)
 
     internal fun account(): AccountOnDisk {
@@ -92,7 +78,6 @@ open class StorageWrapper(
 
     private fun watchAccount(account: OAuthAccount) {
         account.registerPersistenceCallback(statePersistenceCallback)
-        account.registerEventHandler(eventHandler)
         account.deviceConstellation().register(accountEventsIntegration)
     }
 

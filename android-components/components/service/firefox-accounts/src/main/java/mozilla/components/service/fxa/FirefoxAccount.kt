@@ -10,8 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.withContext
-import mozilla.appservices.fxaclient.FirefoxAccountEventHandler
 import mozilla.appservices.fxaclient.Profile
+import mozilla.appservices.fxaclient.ProfileUpdatedCallback
 import mozilla.components.concept.base.crash.CrashReporting
 import mozilla.components.concept.sync.*
 import mozilla.components.support.base.log.logger.Logger
@@ -63,16 +63,8 @@ class FirefoxAccount internal constructor(
     }
 
 
-    private class WrappingFirefoxAccountEventHandler: FirefoxAccountEventHandler {
-        private val logger = Logger("WrappingFirefoxAccountEventHandler")
-
-        @Volatile
-        private var inner: OAuthAccountEventHandler? = null
-
-        fun setCallback(callback: OAuthAccountEventHandler) {
-            logger.debug("Setting persistence callback")
-            inner = callback
-        }
+    private class WrappingProfileUpdatedCallback(private val inner: OAuthProfileUpdatedCallback): ProfileUpdatedCallback {
+        private val logger = Logger("WrappingOAuthProfileUpdatedCallback")
 
         override fun profileUpdated(profile: Profile) {
             val callback = inner
@@ -90,11 +82,9 @@ class FirefoxAccount internal constructor(
 
     private var persistCallback = WrappingPersistenceCallback()
     private val deviceConstellation = FxaDeviceConstellation(inner, scope, crashReporter)
-    private val fxaEventHandler = WrappingFirefoxAccountEventHandler()
 
     init {
         inner.registerPersistCallback(persistCallback)
-        inner.registerEventHandler(fxaEventHandler)
     }
 
     /**
@@ -120,11 +110,6 @@ class FirefoxAccount internal constructor(
         persistCallback.setCallback(callback)
     }
 
-    override fun registerEventHandler(eventHandler: OAuthAccountEventHandler) {
-        logger.info("Registering event handler callback")
-        fxaEventHandler.setCallback(eventHandler)
-    }
-
     override suspend fun beginOAuthFlow(scopes: Set<String>, entryPoint: String) = withContext(scope.coroutineContext) {
         handleFxaExceptions(logger, "begin oauth flow", { null }) {
             val url = inner.beginOAuthFlow(scopes.toTypedArray(), entryPoint)
@@ -148,9 +133,9 @@ class FirefoxAccount internal constructor(
         }
     }
 
-    override suspend fun getProfile(ignoreCache: Boolean) = withContext(scope.coroutineContext) {
-        handleFxaExceptions(logger, "getProfile", { null }) {
-            inner.getProfile(ignoreCache).into()
+    override suspend fun refreshProfile(forceFetch: Boolean, profileUpdatedCallback: OAuthProfileUpdatedCallback): Unit = withContext(scope.coroutineContext) {
+        handleFxaExceptions(logger, "refreshProfile", { null }) {
+            inner.refreshProfile(forceFetch, WrappingProfileUpdatedCallback(profileUpdatedCallback))
         }
     }
 

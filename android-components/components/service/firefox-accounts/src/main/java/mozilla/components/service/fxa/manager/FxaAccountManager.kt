@@ -12,35 +12,18 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
+import mozilla.appservices.fxaclient.ProfileUpdatedHandler
 import mozilla.appservices.syncmanager.DeviceSettings
 import mozilla.components.concept.base.crash.CrashReporting
-import mozilla.components.concept.sync.AccountEventsObserver
-import mozilla.components.concept.sync.AccountObserver
-import mozilla.components.concept.sync.AuthFlowError
-import mozilla.components.concept.sync.AuthFlowUrl
-import mozilla.components.concept.sync.AuthType
-import mozilla.components.concept.sync.DeviceConfig
-import mozilla.components.concept.sync.InFlightMigrationState
-import mozilla.components.concept.sync.OAuthAccount
-import mozilla.components.concept.sync.Profile
-import mozilla.components.concept.sync.ServiceResult
+import mozilla.components.concept.sync.*
+import mozilla.components.service.fxa.*
 import mozilla.components.service.fxa.AccessTokenUnexpectedlyWithoutKey
-import mozilla.components.service.fxa.AccountManagerException
 import mozilla.components.service.fxa.AccountOnDisk
 import mozilla.components.service.fxa.AccountStorage
-import mozilla.components.service.fxa.FxaAuthData
-import mozilla.components.service.fxa.FxaDeviceSettingsCache
 import mozilla.components.service.fxa.Result
 import mozilla.components.service.fxa.SecureAbove22AccountStorage
-import mozilla.components.service.fxa.ServerConfig
 import mozilla.components.service.fxa.SharedPrefAccountStorage
-import mozilla.components.service.fxa.StorageWrapper
-import mozilla.components.service.fxa.SyncAuthInfoCache
-import mozilla.components.service.fxa.SyncConfig
-import mozilla.components.service.fxa.SyncEngine
 import mozilla.components.service.fxa.asAuthFlowUrl
-import mozilla.components.service.fxa.asSyncAuthInfo
-import mozilla.components.service.fxa.intoSyncType
 import mozilla.components.service.fxa.sharing.AccountSharing
 import mozilla.components.service.fxa.sharing.ShareableAccount
 import mozilla.components.service.fxa.sync.SyncManager
@@ -58,6 +41,7 @@ import org.json.JSONObject
 import java.io.Closeable
 import java.lang.Exception
 import java.lang.IllegalArgumentException
+import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
@@ -401,9 +385,22 @@ open class FxaAccountManager(
         else -> null
     }
 
+    private class WrappedProfileUpdatedCallback(
+        private val accountManager: WeakReference<FxaAccountManager>,
+    ): ProfileUpdatedCallback {
+        override fun profileUpdated(profile: Profile) {
+            accountManager.get()?.let {
+                it.setProfile(profile)
+                it.notifyObservers {
+                    onProfileUpdated(profile)
+                }
+            }
+        }
+    }
+
     @VisibleForTesting
-    internal suspend fun refreshProfile(ignoreCache: Boolean): Profile? {
-        return authenticatedAccount()?.getProfile(ignoreCache = ignoreCache)
+    internal suspend fun refreshProfile(ignoreCache: Boolean) {
+        authenticatedAccount()?.refreshProfile(ignoreCache, WrappedProfileUpdatedCallback(WeakReference(this)))
     }
 
     /**
