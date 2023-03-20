@@ -203,6 +203,15 @@ features:
         type: List<OnboardingPanel>
         default: ["themes", "toolbar-placement", "sync", "tcp", "privacy-notice"]
 
+  browser-menu:
+    description: A features that configures the browser menu (hamburger menu)
+    variables:
+      order:
+        description: Determines the order of the settings menu items
+        type: List<BrowserMenuItem>
+        default: ["bookmarks", "history", "downloads", "extensions", "sync", "reconnect", "manage-account-cn", "divider", "desktop-view", "divider", "whats-new", "help", "customize-home", "settings", "quit"]
+
+
 types:
   objects: {}
 
@@ -265,3 +274,34 @@ types:
           description: The onboarding panel where users can choose their total cookie protection settings
         privacy-notice:
           description: The onboarding panel where users can tap to view our privacy notice.
+    BrowserMenuItem:
+      description: The types of home menu items, used to determine the order
+      variants:
+        bookmarks:
+          description: The bookmarks menu item
+        history:
+          description: The history menu item
+        downloads:
+          description: The downloads menu item
+        extensions:
+          description: The extensions menu item
+        sync:
+          description: The Sign in to sync menu item, turns to a manage account button if user is signed in
+        reconnect:
+          description: An option to reconnect account if disconnected for any reason (like password reset)
+        manage-account-cn:
+          description: Manage account setting that only shows for the Mozilla Online app
+        divider:
+          description: A divider for the menu
+        desktop-view:
+          description: A menu item to allow users to get the desktop view of a site
+        whats-new:
+          description: A menu item to show the whats new page to users
+        help:
+          description: The help menu item
+        customize-home:
+          description: A menu item to allow users to customize their home page
+        settings:
+          description: A menu item to allow users to access the browsers settings
+        quit:
+          description: A menu item for the user to quit the app

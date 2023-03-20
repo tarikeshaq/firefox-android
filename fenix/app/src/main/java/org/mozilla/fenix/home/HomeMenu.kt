@@ -34,6 +34,7 @@ import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.theme.ThemeManager
 import org.mozilla.fenix.whatsnew.WhatsNew
+import org.mozilla.fenix.nimbus.BrowserMenuItem as BrowserMenuItemType
 
 @Suppress("LargeClass", "LongMethod")
 class HomeMenu(
@@ -110,6 +111,11 @@ class HomeMenu(
         initialState = { context.settings().openNextTabInDesktopMode },
     ) { checked ->
         onItemTapped.invoke(Item.DesktopMode(checked))
+    }
+
+    private val menuConfig by lazy {
+        FxNimbus.features.browserMenu.recordExposure()
+        FxNimbus.features.browserMenu.value()
     }
 
     @Suppress("ComplexMethod")
@@ -204,27 +210,27 @@ class HomeMenu(
                 null
             }
 
-        val menuItems = listOfNotNull(
-            bookmarksItem,
-            historyItem,
-            downloadsItem,
-            extensionsItem,
-            syncSignInMenuItem(),
-            accountAuthItem,
-            if (Config.channel.isMozillaOnline) manageAccountAndDevicesItem else null,
-            BrowserMenuDivider(),
-            desktopItem,
-            BrowserMenuDivider(),
-            whatsNewItem,
-            helpItem,
-            customizeHomeItem,
-            settingsItem,
-            if (settings.shouldDeleteBrowsingDataOnQuit) quitItem else null,
-        ).also { items ->
+        return menuConfig.order.mapNotNull {
+            when (it) {
+                BrowserMenuItemType.BOOKMARKS -> bookmarksItem
+                BrowserMenuItemType.HISTORY -> historyItem
+                BrowserMenuItemType.DOWNLOADS -> downloadsItem
+                BrowserMenuItemType.EXTENSIONS -> extensionsItem
+                BrowserMenuItemType.SYNC -> syncSignInMenuItem()
+                BrowserMenuItemType.RECONNECT -> accountAuthItem
+                BrowserMenuItemType.MANAGE_ACCOUNT_CN ->
+                    if (Config.channel.isMozillaOnline) manageAccountAndDevicesItem else null
+                BrowserMenuItemType.DIVIDER -> BrowserMenuDivider()
+                BrowserMenuItemType.DESKTOP_VIEW -> desktopItem
+                BrowserMenuItemType.WHATS_NEW -> whatsNewItem
+                BrowserMenuItemType.HELP -> helpItem
+                BrowserMenuItemType.CUSTOMIZE_HOME -> customizeHomeItem
+                BrowserMenuItemType.SETTINGS -> settingsItem
+                BrowserMenuItemType.QUIT -> if (settings.shouldDeleteBrowsingDataOnQuit) quitItem else null
+            }
+        }.also { items ->
             items.getHighlight()?.let { onHighlightPresent(it) }
         }
-
-        return menuItems
     }
 
     init {

@@ -1,4 +1,12 @@
 ---
+browser-menu:
+  description: A features that configures the browser menu (hamburger menu)
+  hasExposure: true
+  exposureDescription: ""
+  variables:
+    order:
+      type: json
+      description: Determines the order of the settings menu items
 client-deduplication:
   description: A feature to control the sending of the client-deduplication ping.
   hasExposure: true
