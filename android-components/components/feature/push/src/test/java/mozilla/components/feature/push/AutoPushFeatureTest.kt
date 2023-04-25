@@ -10,14 +10,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import mozilla.appservices.push.PushException.GeneralException
-import mozilla.appservices.push.PushException.MissingRegistrationTokenException
+import mozilla.appservices.push.DispatchInfo
+import mozilla.appservices.push.KeyInfo
+import mozilla.appservices.push.PushApiException
+import mozilla.appservices.push.PushManagerInterface
+import mozilla.appservices.push.PushSubscriptionChanged
+import mozilla.appservices.push.SubscriptionInfo
+import mozilla.appservices.push.SubscriptionResponse
 import mozilla.components.concept.base.crash.CrashReporting
 import mozilla.components.concept.push.EncryptedPushMessage
 import mozilla.components.concept.push.PushError
 import mozilla.components.concept.push.PushService
-import mozilla.components.feature.push.AutoPushFeature.Companion.LAST_VERIFIED
-import mozilla.components.feature.push.AutoPushFeature.Companion.PERIODIC_INTERVAL_MILLISECONDS
 import mozilla.components.feature.push.AutoPushFeature.Companion.PREFERENCE_NAME
 import mozilla.components.feature.push.AutoPushFeature.Companion.PREF_TOKEN
 import mozilla.components.support.test.any
@@ -27,13 +30,11 @@ import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.test.rule.MainCoroutineRule
 import mozilla.components.support.test.rule.runTestOnMain
 import mozilla.components.support.test.whenever
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,27 +51,14 @@ class AutoPushFeatureTest {
     @get:Rule
     val coroutinesTestRule = MainCoroutineRule()
 
-    private var lastVerified: Long
-        get() = preference(testContext).getLong(LAST_VERIFIED, System.currentTimeMillis())
-        set(value) = preference(testContext).edit().putLong(LAST_VERIFIED, value).apply()
-
-    private val connection: PushConnection = mock()
-
-    @Before
-    fun setup() {
-        whenever(connection.isInitialized()).thenReturn(true)
-    }
-
-    @After
-    fun shutdown() {
-        preference(testContext).edit().remove(LAST_VERIFIED).apply()
-    }
+    private val connection: PushManagerInterface = mock()
 
     @Test
     fun `initialize starts push service`() {
         val service: PushService = mock()
         val config = PushConfig("push-test")
         val feature = AutoPushFeature(testContext, service, config)
+        feature.connection = connection
 
         feature.initialize()
 
@@ -81,9 +69,10 @@ class AutoPushFeatureTest {
 
     @Test
     fun `updateToken not called if no token in prefs`() = runTestOnMain {
-        AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
 
-        verify(connection, never()).updateToken(anyString())
+        verify(connection, never()).update(anyString())
     }
 
     @Test
@@ -94,20 +83,22 @@ class AutoPushFeatureTest {
             testContext,
             mock(),
             mock(),
-            connection = connection,
             coroutineContext = coroutineContext,
         )
+
+        feature.connection = connection
+
         feature.initialize()
 
-        verify(connection).updateToken("token")
+        verify(connection).update("token")
     }
 
     @Test
     fun `shutdown stops service and unsubscribes all`() = runTestOnMain {
         val service: PushService = mock()
-        whenever(connection.isInitialized()).thenReturn(true)
 
-        AutoPushFeature(testContext, service, mock(), coroutineContext, connection).also {
+        AutoPushFeature(testContext, service, mock(), coroutineContext).also {
+            it.connection = connection
             it.shutdown()
         }
 
@@ -116,13 +107,14 @@ class AutoPushFeatureTest {
 
     @Test
     fun `onNewToken updates connection and saves pref`() = runTestOnMain {
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
 
-        whenever(connection.subscribe(anyString(), nullable())).thenReturn(mock())
+        whenever(connection.subscribe(anyString(), anyString(), nullable())).thenReturn(mock())
 
         feature.onNewToken("token")
 
-        verify(connection).updateToken("token")
+        verify(connection).update("token")
 
         val pref = preference(testContext).getString(PREF_TOKEN, null)
         assertNotNull(pref)
@@ -138,12 +130,15 @@ class AutoPushFeatureTest {
         whenever(owner.lifecycle).thenReturn(lifecycle)
         whenever(lifecycle.currentState).thenReturn(Lifecycle.State.STARTED)
         whenever(encryptedMessage.channelId).thenReturn("992a0f0542383f1ea5ef51b7cf4ae6c4")
-        whenever(connection.decryptMessage(any(), any(), any(), any(), any()))
+        whenever(encryptedMessage.body).thenReturn("testbody")
+        whenever(connection.dispatchInfoForChid(any()))
+            .thenReturn(DispatchInfo(scope = "testScope", endpoint = "oof", appServerKey = null))
+        whenever(connection.decrypt(any(), any(), any(), any(), any()))
             .thenReturn(null) // If we get null, we shouldn't notify observers.
-            .thenReturn(DecryptedMessage("testScope", "test".toByteArray()))
+            .thenReturn("test".toByteArray().asList())
 
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
-
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
         feature.register(observer)
 
         feature.onMessageReceived(encryptedMessage)
@@ -157,20 +152,11 @@ class AutoPushFeatureTest {
 
     @Test
     fun `subscribe calls native layer and notifies observers`() = runTestOnMain {
-        val connection: PushConnection = mock()
-        val subscription: AutoPushSubscription = mock()
+        val connection = TestPushConnection(false)
+
         var invoked = false
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
-
-        feature.subscribe("testScope") {
-            invoked = true
-        }
-
-        assertFalse(invoked)
-
-        whenever(connection.isInitialized()).thenReturn(true)
-        whenever(connection.subscribe(anyString(), nullable())).thenReturn(subscription)
-        whenever(subscription.scope).thenReturn("testScope")
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
 
         feature.subscribe("testScope") {
             invoked = true
@@ -181,11 +167,11 @@ class AutoPushFeatureTest {
 
     @Test
     fun `subscribe invokes error callback`() = runTestOnMain {
-        val connection: PushConnection = mock()
         val subscription: AutoPushSubscription = mock()
         var invoked = false
         var errorInvoked = false
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
 
         feature.subscribe(
             scope = "testScope",
@@ -200,8 +186,7 @@ class AutoPushFeatureTest {
         assertFalse(invoked)
         assertFalse(errorInvoked)
 
-        whenever(connection.isInitialized()).thenReturn(true)
-        whenever(connection.subscribe(anyString(), nullable())).thenAnswer { throw MissingRegistrationTokenException("") }
+        whenever(connection.subscribe(anyString(), anyString(), nullable())).thenAnswer { throw PushApiException.InternalException("") }
         whenever(subscription.scope).thenReturn("testScope")
 
         feature.subscribe(
@@ -220,43 +205,11 @@ class AutoPushFeatureTest {
 
     @Test
     fun `unsubscribe calls native layer and notifies observers`() = runTestOnMain {
-        val connection: PushConnection = mock()
         var invoked = false
         var errorInvoked = false
 
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
-
-        feature.unsubscribe(
-            scope = "testScope",
-            onUnsubscribeError = {
-                errorInvoked = true
-            },
-            onUnsubscribe = {
-                invoked = true
-            },
-        )
-
-        assertFalse(errorInvoked)
-        assertFalse(invoked)
-
-        whenever(connection.unsubscribe(anyString())).thenReturn(false)
-        whenever(connection.isInitialized()).thenReturn(true)
-
-        feature.unsubscribe(
-            scope = "testScope",
-            onUnsubscribeError = {
-                errorInvoked = true
-            },
-            onUnsubscribe = {
-                invoked = true
-            },
-        )
-
-        assertTrue(errorInvoked)
-        errorInvoked = false
-
-        whenever(connection.unsubscribe(anyString())).thenReturn(true)
-
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
         feature.unsubscribe(
             scope = "testScope",
             onUnsubscribeError = {
@@ -273,11 +226,12 @@ class AutoPushFeatureTest {
 
     @Test
     fun `unsubscribe invokes error callback on native exception`() = runTestOnMain {
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
         var invoked = false
         var errorInvoked = false
 
-        whenever(connection.unsubscribe(anyString())).thenAnswer { throw MissingRegistrationTokenException("") }
+        whenever(connection.unsubscribe(anyString())).thenAnswer { throw PushApiException.InternalException("") }
 
         feature.unsubscribe(
             scope = "testScope",
@@ -295,10 +249,12 @@ class AutoPushFeatureTest {
 
     @Test
     fun `getSubscription returns null when there is no subscription`() = runTestOnMain {
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
         var invoked = false
 
-        whenever(connection.containsSubscription(anyString())).thenReturn(true)
+
+        whenever(connection.dispatchInfoForChid(anyString())).thenReturn(null)
 
         feature.getSubscription(
             scope = "testScope",
@@ -313,7 +269,8 @@ class AutoPushFeatureTest {
     @Test
     fun `getSubscription invokes subscribe when there is a subscription`() = runTestOnMain {
         val connection = TestPushConnection(true)
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
         var invoked = false
 
         feature.getSubscription(
@@ -329,7 +286,8 @@ class AutoPushFeatureTest {
     @Test
     fun `forceRegistrationRenewal deletes pref and calls service`() = runTestOnMain {
         val service: PushService = mock()
-        val feature = AutoPushFeature(testContext, service, mock(), coroutineContext, mock())
+        val feature = AutoPushFeature(testContext, service, mock(), coroutineContext)
+        feature.connection = connection
 
         feature.renewRegistration()
 
@@ -342,11 +300,12 @@ class AutoPushFeatureTest {
 
     @Test
     fun `verifyActiveSubscriptions notifies observers`() = runTestOnMain {
-        val connection: PushConnection = spy(TestPushConnection(true))
+        val connection: PushManagerInterface = spy(TestPushConnection(true))
         val owner: LifecycleOwner = mock()
         val lifecycle: Lifecycle = mock()
         val observers: AutoPushFeature.Observer = mock()
-        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext, connection)
+        val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
+        feature.connection = connection
         whenever(owner.lifecycle).thenReturn(lifecycle)
         whenever(lifecycle.currentState).thenReturn(Lifecycle.State.STARTED)
 
@@ -364,58 +323,10 @@ class AutoPushFeatureTest {
         verify(observers, never()).onSubscriptionChanged(any())
 
         // When there are subscription updates, observers should be notified.
-        whenever(connection.verifyConnection()).thenReturn(listOf(AutoPushSubscriptionChanged("scope", "1246")))
+        whenever(connection.verifyConnection()).thenReturn(listOf(PushSubscriptionChanged(scope = "scope", channelId = "1246")))
         feature.verifyActiveSubscriptions()
 
         verify(observers).onSubscriptionChanged("scope")
-    }
-
-    @Test
-    fun `initialize executes verifyActiveSubscriptions after interval`() = runTestOnMain {
-        val feature = spy(
-            AutoPushFeature(
-                context = testContext,
-                service = mock(),
-                config = mock(),
-                coroutineContext = coroutineContext,
-                connection = mock(),
-            ),
-        )
-
-        lastVerified = System.currentTimeMillis() - VERIFY_NOW
-
-        // We want the feature to find a token so it initializes, as that must happen before verify.
-        val prefs = testContext.getSharedPreferences("mozac_feature_push", Context.MODE_PRIVATE)
-        prefs.edit().putString(PREF_TOKEN, "test-token").apply()
-
-        feature.initialize()
-
-        verify(feature).tryVerifySubscriptions()
-    }
-
-    @Test
-    fun `initialize does not execute verifyActiveSubscription before interval`() = runTestOnMain {
-        val feature = spy(
-            AutoPushFeature(
-                context = testContext,
-                service = mock(),
-                config = mock(),
-                coroutineContext = coroutineContext,
-                connection = mock(),
-            ),
-        )
-
-        lastVerified = System.currentTimeMillis() - SKIP_INTERVAL
-
-        // We want the feature to find a token so it initializes, as that must happen before verify.
-        // For this test, we want the token check to succeed so the ratelimiting check
-        // must also work correctly.
-        val prefs = testContext.getSharedPreferences("mozac_feature_push", Context.MODE_PRIVATE)
-        prefs.edit().putString(PREF_TOKEN, "test-token").apply()
-
-        feature.initialize()
-
-        verify(feature, never()).verifyActiveSubscriptions()
     }
 
     @Test
@@ -426,11 +337,10 @@ class AutoPushFeatureTest {
                 service = mock(),
                 config = mock(),
                 coroutineContext = coroutineContext,
-                connection = mock(),
             ),
         )
+        feature.connection = connection
 
-        lastVerified = 0
         feature.initialize()
         // no token yet so should not have even tried.
         verify(feature, never()).verifyActiveSubscriptions()
@@ -448,9 +358,10 @@ class AutoPushFeatureTest {
                 service = mock(),
                 config = mock(),
                 coroutineContext = coroutineContext,
-                connection = mock(),
             ),
         )
+
+        feature.connection = connection
 
         feature.initialize()
 
@@ -459,16 +370,16 @@ class AutoPushFeatureTest {
 
     @Test
     fun `crash reporter is notified of errors`() = runTestOnMain {
-        val native: PushConnection = TestPushConnection(true)
+        val native: PushManagerInterface = TestPushConnection(true)
         val crashReporter: CrashReporting = mock()
         val feature = AutoPushFeature(
             context = testContext,
             service = mock(),
             config = mock(),
             coroutineContext = coroutineContext,
-            connection = native,
             crashReporter = crashReporter,
         )
+        feature.connection = native
 
         feature.onError(PushError.Rust(PushError.MalformedMessage("Bad things happened!")))
 
@@ -476,22 +387,25 @@ class AutoPushFeatureTest {
     }
 
     @Test
-    fun `non-fatal errors are ignored`() = runTestOnMain {
+    fun `non-fatal errors trigger verifyConnection`() = runTestOnMain {
         val crashReporter: CrashReporting = mock()
         val feature = AutoPushFeature(
             context = testContext,
             service = mock(),
             config = mock(),
             coroutineContext = coroutineContext,
-            connection = connection,
             crashReporter = crashReporter,
         )
 
-        whenever(connection.unsubscribe(any())).thenAnswer { throw GeneralException("test") }
+        feature.connection = connection
 
+        whenever(connection.unsubscribe(any())).thenAnswer { throw PushApiException.UaidNotRecognizedException(
+            "test"
+        ) }
         feature.unsubscribe("123") {}
 
         verify(crashReporter, never()).submitCaughtException(any<PushError.Rust>())
+        verify(connection).verifyConnection(true)
     }
 
     @Test
@@ -502,11 +416,12 @@ class AutoPushFeatureTest {
             service = mock(),
             config = mock(),
             coroutineContext = coroutineContext,
-            connection = connection,
             crashReporter = crashReporter,
         )
 
-        whenever(connection.unsubscribe(any())).thenAnswer { throw MissingRegistrationTokenException("") }
+        feature.connection = connection
+
+        whenever(connection.unsubscribe(any())).thenAnswer { throw PushApiException.InternalException("") }
 
         feature.unsubscribe("123") {}
 
@@ -517,40 +432,42 @@ class AutoPushFeatureTest {
         private fun preference(context: Context): SharedPreferences {
             return context.getSharedPreferences(PREFERENCE_NAME, Context.MODE_PRIVATE)
         }
-
-        private const val SKIP_INTERVAL = 23 * 60 * 60 * 1000L // 23 hours; less than interval
-        private const val VERIFY_NOW = PERIODIC_INTERVAL_MILLISECONDS + (10 * 60 * 1000) // interval + 10 mins
     }
 
-    class TestPushConnection(private val init: Boolean = false) : PushConnection {
-        override suspend fun subscribe(scope: String, appServerKey: String?) = AutoPushSubscription(
-            scope = scope,
-            endpoint = "https://foo",
-            publicKey = "p256dh",
-            authKey = "auth",
-            appServerKey = null,
-        )
+    class TestPushConnection(private val init: Boolean = false) : PushManagerInterface {
 
-        override suspend fun unsubscribe(scope: String): Boolean = true
+        override fun unsubscribe(channelId: String) = Unit
 
-        override suspend fun unsubscribeAll(): Unit = Unit
+        override fun unsubscribeAll(): Unit = Unit
 
-        override suspend fun containsSubscription(scope: PushScope) = true
-
-        override suspend fun updateToken(token: String) = true
-
-        override suspend fun verifyConnection(): List<AutoPushSubscriptionChanged> = emptyList()
-
-        override suspend fun decryptMessage(
+        override fun decrypt(
             channelId: String,
-            body: String?,
+            body: String,
             encoding: String,
             salt: String,
-            cryptoKey: String,
-        ): DecryptedMessage? = null
+            dh: String,
+        ): List<Byte> {
+            return listOf()
+        }
 
-        override fun isInitialized() = init
+        override fun dispatchInfoForChid(channelId: String): DispatchInfo? =
+            DispatchInfo(scope = "scope", endpoint = "https://something", appServerKey = null)
 
-        override fun close() {}
+        override fun subscribe(
+            channelId: String,
+            scope: String,
+            appServerSey: String?,
+        ): SubscriptionResponse {
+            return SubscriptionResponse(
+                channelId = channelId,
+                subscriptionInfo = SubscriptionInfo(
+                    endpoint = "https://foo",
+                    keys = KeyInfo(auth = "auth", p256dh = "p256dh")
+                ),
+            )
+        }
+
+        override fun update(registrationToken: String) = Unit
+        override fun verifyConnection(forceVerify: Boolean): List<PushSubscriptionChanged> = emptyList()
     }
 }

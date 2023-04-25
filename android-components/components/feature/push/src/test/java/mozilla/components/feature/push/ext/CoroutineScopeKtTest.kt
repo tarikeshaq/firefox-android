@@ -9,94 +9,48 @@ package mozilla.components.feature.push.ext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
-import mozilla.appservices.push.InternalException
-import mozilla.appservices.push.PushException.AlreadyRegisteredException
-import mozilla.appservices.push.PushException.CommunicationException
-import mozilla.appservices.push.PushException.CommunicationServerException
-import mozilla.appservices.push.PushException.CryptoException
-import mozilla.appservices.push.PushException.GeneralException
-import mozilla.appservices.push.PushException.MissingRegistrationTokenException
-import mozilla.appservices.push.PushException.RecordNotFoundException
-import mozilla.appservices.push.PushException.StorageException
-import mozilla.appservices.push.PushException.StorageSqlException
-import mozilla.appservices.push.PushException.TranscodingException
-import mozilla.appservices.push.PushException.UrlParseException
-import mozilla.components.feature.push.exceptionHandler
+import mozilla.appservices.push.PushApiException.UaidNotRecognizedException
+import mozilla.appservices.push.PushApiException.RecordNotFoundException
+import mozilla.appservices.push.PushApiException.InternalException
 import org.junit.Test
 
 @ExperimentalCoroutinesApi
 class CoroutineScopeKtTest {
 
     @Test(expected = InternalException::class)
-    fun `launchAndTry throws on unrecoverable Rust exceptions`() = runTest {
+    fun `launchAndTry triggers errorBlock on push error`() = runTest {
         CoroutineScope(coroutineContext).launchAndTry(
             errorBlock = { throw InternalException("unit test") },
-            block = { throw MissingRegistrationTokenException("") },
+            block = { throw UaidNotRecognizedException("") },
         )
     }
 
     @Test(expected = ArithmeticException::class)
-    fun `launchAndTry throws original exception`() = runTest {
+    fun `launchAndTry does not catch original exception if not push error`() = runTest {
         CoroutineScope(coroutineContext).launchAndTry(
             errorBlock = { throw InternalException("unit test") },
             block = { throw ArithmeticException() },
         )
     }
 
+    @Test(expected = UaidNotRecognizedException::class)
+    fun `launchAndTry continues to re-throw if error block doesn't throw`() = runTest {
+        CoroutineScope(coroutineContext).launchAndTry(
+            errorBlock = { assert(true) },
+            block = { throw UaidNotRecognizedException("") },
+        )
+    }
+
+
     @Test
     fun `launchAndTry should NOT throw on recoverable Rust exceptions`() = runTest {
         CoroutineScope(coroutineContext).launchAndTry(
-            { throw CryptoException("should not fail test") },
-            { assert(true) },
-        ) + exceptionHandler {}
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw CommunicationServerException("should not fail test") },
-            { assert(true) },
-        )
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw CommunicationException("should not fail test") },
-            { assert(true) },
-        )
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw AlreadyRegisteredException("") },
-            { assert(true) },
-        )
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw StorageException("should not fail test") },
-            { assert(true) },
-        )
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw MissingRegistrationTokenException("") },
-            { assert(true) },
-        )
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw StorageSqlException("should not fail test") },
-            { assert(true) },
-        )
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw TranscodingException("should not fail test") },
+            { throw UaidNotRecognizedException("should not fail test") },
             { assert(true) },
         )
 
         CoroutineScope(coroutineContext).launchAndTry(
             { throw RecordNotFoundException("should not fail test") },
-            { assert(true) },
-        )
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw UrlParseException("should not fail test") },
-            { assert(true) },
-        )
-
-        CoroutineScope(coroutineContext).launchAndTry(
-            { throw GeneralException("should not fail test") },
             { assert(true) },
         )
     }

@@ -7,7 +7,7 @@ package mozilla.components.feature.push.ext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import mozilla.appservices.push.PushException
+import mozilla.appservices.push.PushApiException
 
 /**
  * Catches all fatal push errors to notify the callback before re-throwing.
@@ -19,7 +19,7 @@ internal fun CoroutineScope.launchAndTry(
     return launch {
         try {
             block()
-        } catch (e: PushException) {
+        } catch (e: PushApiException) {
             errorBlock(e)
 
             // rethrow
