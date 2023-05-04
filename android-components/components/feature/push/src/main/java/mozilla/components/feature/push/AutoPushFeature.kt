@@ -163,29 +163,15 @@ class AutoPushFeature(
     /**
      * New encrypted messages received from a supported push messaging service.
      */
-    override fun onMessageReceived(message: EncryptedPushMessage) {
+    override fun onMessageReceived(message: Map<String, String>) {
         coroutineScope.launchAndTry {
-            logger.info("New push message decrypted.")
-            // Query for the scope so that we can notify observers who the decrypted message is for.
-            val scope = connection?.dispatchInfoForChid(message.channelId)?.scope
-            val body = message.body
-            if (scope == null) {
-                return@launchAndTry
-            }
-
-            val data = if (body == null) {
-                null
-            } else {
-                connection?.decrypt(
-                    channelId = message.channelId,
-                    body = body,
-                    encoding = message.encoding,
-                    salt = message.salt,
-                    dh = message.cryptoKey,
+            connection?.let {
+                val decryptResponse = it.decrypt(
+                    payload = message
                 )
+                logger.info("New push message decrypted.")
+                notifyObservers { onMessageReceived(decryptResponse.scope, decryptResponse.result.toByteArray()) }
             }
-
-            notifyObservers { onMessageReceived(scope, data?.toByteArray()) }
         }
     }
 
@@ -215,7 +201,7 @@ class AutoPushFeature(
             },
             block = {
                 connection?.let {
-                    val sub = it.subscribe(scope.toChannelId(), scope,appServerKey ?: "")
+                    val sub = it.subscribe(scope,appServerKey ?: "")
                     onSubscribe(sub.toPushSubscription(scope, appServerKey ?: ""))
                 }
             },
@@ -240,7 +226,7 @@ class AutoPushFeature(
             },
             block = {
                 connection?.let {
-                    it.unsubscribe(scope.toChannelId())
+                    it.unsubscribe(scope)
                     onUnsubscribe()
                 }
             },
@@ -262,13 +248,7 @@ class AutoPushFeature(
     ) {
         coroutineScope.launchAndTry {
             connection?.let {
-                if (it.dispatchInfoForChid(scope.toChannelId()) !== null) {
-                    // If we have a subscription, calling subscribe will give us the existing subscription.
-                    // We do this because we do not have API symmetry across the different layers in this stack.
-                    subscribe(scope, appServerKey, {}, block)
-                } else {
-                    block(null)
-                }
+                block(it.getSubscription(scope)?.toPushSubscription(scope, appServerKey))
             }
         }
     }
@@ -433,11 +413,3 @@ fun SubscriptionResponse.toPushSubscription(
         appServerKey = appServerKey,
     )
 }
-
-/**
- * A channel ID from the provided scope.
- */
-internal fun PushScope.toChannelId() =
-    UUID.nameUUIDFromBytes(this.toByteArray()).toString().replace("-", "")
-
-

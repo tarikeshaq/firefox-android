@@ -57,17 +57,10 @@ class AbstractFirebasePushServiceTest {
             "enc" to "salt",
             "cryptokey" to "dh256",
         )
-        val captor = argumentCaptor<EncryptedPushMessage>()
         `when`(remoteMessage.data).thenReturn(data)
         service.onMessageReceived(remoteMessage)
 
-        verify(processor).onMessageReceived(captor.capture())
-
-        assertEquals("1234", captor.value.channelId)
-        assertEquals("contents", captor.value.body)
-        assertEquals("encoding", captor.value.encoding)
-        assertEquals("salt", captor.value.salt)
-        assertEquals("dh256", captor.value.cryptoKey)
+        verify(processor).onMessageReceived(data)
     }
 
     @Test
@@ -76,32 +69,11 @@ class AbstractFirebasePushServiceTest {
         val data = mapOf(
             "chid" to "1234",
         )
-        val captor = argumentCaptor<EncryptedPushMessage>()
         `when`(remoteMessage.data).thenReturn(data)
         service.onMessageReceived(remoteMessage)
 
         verify(processor, never()).onError(any())
-        verify(processor).onMessageReceived(captor.capture())
-
-        assertEquals("1234", captor.value.channelId)
-        assertEquals("aes128gcm", captor.value.encoding)
-        assertEquals("", captor.value.salt)
-        assertEquals("", captor.value.cryptoKey)
-    }
-
-    @Test
-    fun `do nothing if the message is not for us`() {
-        val remoteMessage: RemoteMessage = mock()
-        val data = mapOf(
-            "con" to "encoding",
-            "enc" to "salt",
-            "cryptokey" to "dh256",
-        )
-        `when`(remoteMessage.data).thenReturn(data)
-
-        service.onMessageReceived(remoteMessage)
-
-        verifyNoInteractions(processor)
+        verify(processor).onMessageReceived(data)
     }
 
     @Test

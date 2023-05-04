@@ -10,13 +10,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import mozilla.appservices.push.DispatchInfo
-import mozilla.appservices.push.KeyInfo
-import mozilla.appservices.push.PushApiException
-import mozilla.appservices.push.PushManagerInterface
-import mozilla.appservices.push.PushSubscriptionChanged
-import mozilla.appservices.push.SubscriptionInfo
-import mozilla.appservices.push.SubscriptionResponse
+import mozilla.appservices.push.*
 import mozilla.components.concept.base.crash.CrashReporting
 import mozilla.components.concept.push.EncryptedPushMessage
 import mozilla.components.concept.push.PushError
@@ -110,7 +104,7 @@ class AutoPushFeatureTest {
         val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
         feature.connection = connection
 
-        whenever(connection.subscribe(anyString(), anyString(), nullable())).thenReturn(mock())
+        whenever(connection.subscribe(anyString(), nullable())).thenReturn(mock())
 
         feature.onNewToken("token")
 
@@ -123,19 +117,15 @@ class AutoPushFeatureTest {
 
     @Test
     fun `onMessageReceived decrypts message and notifies observers`() = runTestOnMain {
-        val encryptedMessage: EncryptedPushMessage = mock()
+        val encryptedMessage: Map<String, String> = mock()
         val owner: LifecycleOwner = mock()
         val lifecycle: Lifecycle = mock()
         val observer: AutoPushFeature.Observer = mock()
         whenever(owner.lifecycle).thenReturn(lifecycle)
         whenever(lifecycle.currentState).thenReturn(Lifecycle.State.STARTED)
-        whenever(encryptedMessage.channelId).thenReturn("992a0f0542383f1ea5ef51b7cf4ae6c4")
-        whenever(encryptedMessage.body).thenReturn("testbody")
-        whenever(connection.dispatchInfoForChid(any()))
-            .thenReturn(DispatchInfo(scope = "testScope", endpoint = "oof", appServerKey = null))
-        whenever(connection.decrypt(any(), any(), any(), any(), any()))
+        whenever(connection.decrypt(any()))
             .thenReturn(null) // If we get null, we shouldn't notify observers.
-            .thenReturn("test".toByteArray().asList())
+            .thenReturn(DecryptResponse(result = "test".toByteArray().asList(), scope = "testScope"))
 
         val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
         feature.connection = connection
@@ -152,7 +142,7 @@ class AutoPushFeatureTest {
 
     @Test
     fun `subscribe calls native layer and notifies observers`() = runTestOnMain {
-        val connection = TestPushConnection(false)
+        val connection = TestPushConnection()
 
         var invoked = false
         val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
@@ -186,7 +176,7 @@ class AutoPushFeatureTest {
         assertFalse(invoked)
         assertFalse(errorInvoked)
 
-        whenever(connection.subscribe(anyString(), anyString(), nullable())).thenAnswer { throw PushApiException.InternalException("") }
+        whenever(connection.subscribe(anyString(), nullable())).thenAnswer { throw PushApiException.InternalException("") }
         whenever(subscription.scope).thenReturn("testScope")
 
         feature.subscribe(
@@ -254,7 +244,7 @@ class AutoPushFeatureTest {
         var invoked = false
 
 
-        whenever(connection.dispatchInfoForChid(anyString())).thenReturn(null)
+        whenever(connection.getSubscription(anyString())).thenReturn(null)
 
         feature.getSubscription(
             scope = "testScope",
@@ -268,10 +258,22 @@ class AutoPushFeatureTest {
 
     @Test
     fun `getSubscription invokes subscribe when there is a subscription`() = runTestOnMain {
-        val connection = TestPushConnection(true)
         val feature = AutoPushFeature(testContext, mock(), mock(), coroutineContext)
         feature.connection = connection
         var invoked = false
+
+        whenever(connection.getSubscription(anyString())).thenReturn(
+            SubscriptionResponse(
+                channelId = "cid",
+                subscriptionInfo = SubscriptionInfo(
+                    endpoint = "endpoint",
+                    keys = KeyInfo(
+                        auth = "auth",
+                        p256dh = "p256dh"
+                    )
+                )
+            )
+        )
 
         feature.getSubscription(
             scope = "testScope",
@@ -300,7 +302,7 @@ class AutoPushFeatureTest {
 
     @Test
     fun `verifyActiveSubscriptions notifies observers`() = runTestOnMain {
-        val connection: PushManagerInterface = spy(TestPushConnection(true))
+        val connection: PushManagerInterface = spy(TestPushConnection())
         val owner: LifecycleOwner = mock()
         val lifecycle: Lifecycle = mock()
         val observers: AutoPushFeature.Observer = mock()
@@ -370,7 +372,7 @@ class AutoPushFeatureTest {
 
     @Test
     fun `crash reporter is notified of errors`() = runTestOnMain {
-        val native: PushManagerInterface = TestPushConnection(true)
+        val native: PushManagerInterface = TestPushConnection()
         val crashReporter: CrashReporting = mock()
         val feature = AutoPushFeature(
             context = testContext,
@@ -434,32 +436,28 @@ class AutoPushFeatureTest {
         }
     }
 
-    class TestPushConnection(private val init: Boolean = false) : PushManagerInterface {
+    class TestPushConnection() : PushManagerInterface {
 
-        override fun unsubscribe(channelId: String) = Unit
+        override fun unsubscribe(scope: String) = Unit
 
         override fun unsubscribeAll(): Unit = Unit
 
         override fun decrypt(
-            channelId: String,
-            body: String,
-            encoding: String,
-            salt: String,
-            dh: String,
-        ): List<Byte> {
-            return listOf()
+            payload: Map<String, String>
+        ): DecryptResponse {
+            return DecryptResponse(result = listOf(), scope = "testScope")
         }
 
-        override fun dispatchInfoForChid(channelId: String): DispatchInfo? =
-            DispatchInfo(scope = "scope", endpoint = "https://something", appServerKey = null)
+        override fun getSubscription(scope: String): SubscriptionResponse? {
+            return null
+        }
 
         override fun subscribe(
-            channelId: String,
             scope: String,
             appServerSey: String?,
         ): SubscriptionResponse {
             return SubscriptionResponse(
-                channelId = channelId,
+                channelId = "test-cid",
                 subscriptionInfo = SubscriptionInfo(
                     endpoint = "https://foo",
                     keys = KeyInfo(auth = "auth", p256dh = "p256dh")

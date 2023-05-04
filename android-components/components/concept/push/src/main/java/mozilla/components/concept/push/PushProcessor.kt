@@ -30,7 +30,7 @@ interface PushProcessor {
     /**
      * A new push message has been received.
      */
-    fun onMessageReceived(message: EncryptedPushMessage)
+    fun onMessageReceived(message: Map<String, String>)
 
     /**
      * An error has occurred.
